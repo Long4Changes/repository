@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>高德地图动态加载门店</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: Arial, sans-serif;
+        }
+
+        .container {
+            display: flex;
+            height: 100vh;
+        }
+
+        .map-container {
+            flex: 2;
+            height: 100%;
+        }
+
+        #map {
+            width: 100%;
+            height: 100%;
+        }
+
+        .stats-panel {
+            flex: 1;
+            background-color: #f4f4f4;
+            padding: 20px;
+            overflow-y: auto;
+        }
+
+        .stats-panel h2 {
+            margin-bottom: 20px;
+            color: #333;
+        }
+
+        .store-item {
+            margin-bottom: 15px;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            background: #fff;
+            cursor: pointer;
+            transition: background 0.3s, border-color 0.3s;
+        }
+
+        .store-item:hover {
+            background: #e0e0e0;
+        }
+
+        .store-item.active {
+            background: #d6f5d6;
+            border-color: #5cb85c;
+        }
+
+        .store-item h4 {
+            margin-bottom: 5px;
+            font-size: 16px;
+            color: #333;
+        }
+
+        .store-item p {
+            font-size: 14px;
+            color: #666;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <div class="map-container">
+            <div id="map"></div>
+        </div>
+        <div class="stats-panel">
+            <h2>门店统计面板</h2>
+            <div id="store-list"></div> <!-- 动态加载门店列表 -->
+        </div>
+    </div>
+
+    <!-- 高德地图 JS API -->
+    <script src="https://webapi.amap.com/maps?v=2.0&key=312c8717a41eb89783367d8e5532e122"></script>
+    <script>
+        // 初始化地图
+        const map = new AMap.Map('map', {
+            center: [121.4737, 31.2304], // 地图中心点
+            zoom: 11 // 缩放级别
+        });
+
+        // 容器 DOM
+        const storeList = document.getElementById('store-list');
+
+        // 动态加载门店数据
+        fetch('stores.json') // 从 stores.json 文件加载数据
+            .then(response => response.json())
+            .then(data => {
+                const markers = [];
+                const infoWindows = [];
+
+                // 遍历门店数据
+                data.forEach((store, index) => {
+                    // 添加地图标记点
+                    const marker = new AMap.Marker({
+                        position: store.position,
+                        title: store.name
+                    });
+                    marker.setMap(map);
+
+                    const infoWindow = new AMap.InfoWindow({
+                        content: `<div>
+                        <h4>${store.name}</h4>
+                        <p>${store.info}</p>
+                      </div>`,
+                        offset: new AMap.Pixel(0, -30)
+                    });
+
+                    markers.push(marker);
+                    infoWindows.push(infoWindow);
+
+                    // 标记点点击事件
+                    marker.on('click', () => {
+                        infoWindows.forEach(win => win.close());
+                        infoWindow.open(map, marker.getPosition());
+                        highlightStoreItem(index); // 高亮对应的统计面板卡片
+                    });
+
+                    // 动态添加统计面板的门店卡片
+                    const storeItem = document.createElement('div');
+                    storeItem.className = 'store-item';
+                    storeItem.setAttribute('data-index', index);
+                    storeItem.innerHTML = `
+            <h4>${store.name}</h4>
+            <p>${store.info}</p>
+            <p>营业额：${store.revenue}</p>
+          `;
+                    storeList.appendChild(storeItem);
+
+                    // 统计面板卡片点击事件
+                    storeItem.addEventListener('click', () => {
+                        map.setCenter(marker.getPosition());
+                        infoWindows.forEach(win => win.close());
+                        infoWindow.open(map, marker.getPosition());
+                        highlightStoreItem(index); // 高亮当前卡片
+                    });
+                });
+
+                // 高亮统计面板卡片
+                function highlightStoreItem(index) {
+                    const storeItems = document.querySelectorAll('.store-item');
+                    storeItems.forEach(item => item.classList.remove('active')); // 清除高亮
+                    storeItems[index].classList.add('active'); // 添加高亮
+                }
+            })
+            .catch(error => {
+                console.error('加载门店数据失败:', error);
+            });
+    </script>
+</body>
+
+</html>

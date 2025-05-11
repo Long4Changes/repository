@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>门店地图展示</title>
+    <style>
+        body, html { margin: 0; padding: 0; height: 100%; }
+        #map {
+            width: 100%;
+            height: 50%; 
+            position: relative; /* 确保地图容器正常显示 */
+        }
+        #statistics-panel {
+            width: 100%;
+            background: #fff;
+            padding: 15px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            box-sizing: border-box;
+        }
+        #store-list { 
+            height: calc(30% - 30px); /* 调整列表高度，减去统计面板的padding */
+            overflow-y: auto; 
+            padding: 10px; 
+            background: #f4f4f4; 
+        }
+        .store-item { padding: 10px; border-bottom: 1px solid #ddd; cursor: pointer; }
+        .store-item:hover { background: #e0e0e0; }
+        
+        /* 添加统计面板样式 */
+        .stats-table {
+            width: 100%;
+            border-collapse: collapse;
+            table-layout: fixed;
+        }
+        
+        .stats-table td {
+            text-align: center;
+            padding: 10px;
+            border: none;
+            position: relative;
+        }
+        
+        .stats-value {
+            font-size: 24px;
+            color: #333;
+            margin-bottom: 5px;
+        }
+        
+        .stats-label {
+            font-size: 14px;
+            color: #999;
+        }
+    </style>
+</head>
+<body>
+    <div id="map"></div>
+    <div id="statistics-panel">
+        <table class="stats-table">
+            <tr>
+                <td>
+                    <div class="stats-value" id="total-stores">--</div>
+                    <div class="stats-label">本月商户数</div>
+                </td>
+
+                <td>
+                    <div class="stats-value" id="total-revenue">--</div>
+                    <div class="stats-label">GMV</div>
+                </td>
+
+                <td>
+                    <div class="stats-value" id="top-store">--</div>
+                    <div class="stats-label">销售额最高门店</div>
+                </td>
+                <td>
+                    <div class="stats-value" id="qingtian-stores">--</div>
+                    <div class="stats-label">青田门店数</div>
+                </td>
+            </tr>
+        </table>
+    </div>
+    <div id="store-list">正在加载门店数据...</div>
+
+    <!-- 引入高德地图 API -->
+    <script src="https://webapi.amap.com/maps?v=2.0&key=312c8717a41eb89783367d8e5532e122"></script>
+    <script>
+        let map; // 地图对象
+        const markers = []; // 存储标记点
+        const infoWindows = []; // 存储信息窗口
+
+        // 初始化地图
+        function initMap() {
+            map = new AMap.Map('map', {
+                center: [121.5173, 31.3103],
+                zoom: 11,
+                viewMode: '2D' // 确保使用2D视图
+            });
+            map.on('complete', () => {
+                console.log('地图加载完成');
+            });
+            map.on('error', (e) => {
+                console.error('地图加载失败:', e);
+            });
+        }
+
+        // 添加标记点到地图
+        function addMarkersToMap(data) {
+            data.forEach((store, index) => {
+                if (!store.position || store.position.length !== 2) {
+                    console.error(`无效的位置信息: ${store.position}`);
+                    return;
+                }
+                const marker = new AMap.Marker({
+                    position: store.position, // 确保是 [longitude, latitude]
+                    title: store.store, // 使用正确的字段名
+                    map: map
+                });
+                markers.push(marker);
+
+                const infoWindow = new AMap.InfoWindow({
+                    content: `
+                        <div>
+                            <strong>${store.brand} - ${store.store}</strong><br>
+                            地址: ${store.address}<br>
+                            系统: ${store.system}<br>
+                            是否青田: ${store.isQingtian ? '是' : '否'}<br>
+                            营业额: ${store.revenue}<br>
+                        </div>
+                    `
+                });
+                infoWindows.push(infoWindow);
+
+                marker.on('click', () => {
+                    infoWindows.forEach(win => win.close());
+                    infoWindow.open(map, store.position);
+                });
+            });
+        }
+
+        // 渲染统计台中的门店列表
+        function renderStoreList(data) {
+            const storeList = document.getElementById('store-list');
+            storeList.innerHTML = '';
+            data.forEach((store, index) => {
+                const storeItem = document.createElement('div');
+                storeItem.className = 'store-item';
+                storeItem.textContent = `${store.store} - ${store.address}`;
+                storeItem.onclick = () => {
+                    map.setCenter(store.position); // 定位到地图中央
+                    map.setZoom(15); // 调整缩放级别
+                    infoWindows.forEach(win => win.close());
+                    infoWindows[index].open(map, store.position);
+                };
+                storeList.appendChild(storeItem);
+            });
+        }
+
+        // 更新统计台
+        function updateStatistics(data) {
+            const totalStores = data.length;
+            const qingtianStores = data.filter(store => store.isQingtian).length;
+            const totalRevenue = data.reduce((sum, store) => sum + (parseFloat(store.revenue) || 0), 0);
+
+            document.getElementById('total-stores').textContent = `${totalStores}家`;
+            document.getElementById('qingtian-stores').textContent = `${qingtianStores}家`;
+            document.getElementById('total-revenue').textContent = `${(totalRevenue / 10000).toFixed(0)}万元`;
+        }
+
+        // 获取后端数据并初始化地图和统计台
+        function fetchAndRender() {
+            fetch('http://localhost:3000/api/stores')
+                .then(response => {
+                    if (!response.ok) {
+                        // 如果响应状态码不是 200，尝试解析错误信息
+                        return response.json().then(err => {
+                            throw new Error(err.error || '未知错误');
+                        }).catch(() => {
+                            throw new Error('服务器返回了非 JSON 格式的错误信息');
+                        });
+                    }
+                    return response.json();
+                })
+                .then(data => {
+                    console.log('获取的数据:', data);
+                    addMarkersToMap(data); // 初始化标记点
+                    renderStoreList(data); // 渲染门店列表
+                    updateStatistics(data); // 更新统计台
+                })
+                .catch(error => {
+                    console.error('详细错误信息:', error);
+                    document.getElementById('store-list').innerHTML = `加载失败: ${error.message}`;
+                });
+        }
+        // 初始化
+        initMap();
+        fetchAndRender();
+    </script>
+</body>
+</html>
